@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
+import fs from "fs";
+import path from "path";
 import { v2 as cloudinary } from "cloudinary";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 
 // =======================
-// 🔧 Cloudinary Configuration
+// Cloudinary Configuration
 // =======================
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME!,
@@ -11,39 +17,74 @@ cloudinary.config({
 });
 
 // =======================
-// 📤 POST Handler (Upload Image)
+// Generate 4 options including correct answer
 // =======================
-export async function POST(req: Request) {
-  try {
-    const formData = await req.formData();
-    const file = formData.get("image") as File;
+function generateOptions(correct: string) {
+  const options = new Set<string>();
+  options.add(correct);
 
-    if (!file) {
-      return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
-    }
+  while (options.size < 4) {
+    const randomLetter = LETTERS[Math.floor(Math.random() * LETTERS.length)];
+    options.add(randomLetter);
+  }
 
-    // Convert File to Buffer
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+  return Array.from(options).sort(() => Math.random() - 0.5);
+}
 
-    // Upload directly to Cloudinary using stream
-    const uploadResult = await new Promise((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        { folder: "asl_quiz" },
-        (error, result) => {
-          if (error) reject(error);
-          else resolve(result);
-        }
-      );
-      stream.end(buffer);
+// =======================
+// Upload file to Cloudinary
+// =======================
+async function uploadFileToCloudinary(localPath: string, folder: string) {
+  return new Promise<any>((resolve, reject) => {
+    cloudinary.uploader.upload(localPath, { folder }, (error, result) => {
+      if (error) reject(error);
+      else resolve(result);
     });
+  });
+}
+
+// =======================
+// POST Handler
+// =======================
+export async function POST() {
+  try {
+    const lettersDir = path.join(process.cwd(), "public", "Letters");
+    const files = fs.readdirSync(lettersDir);
+
+    const uploaded: any[] = [];
+
+    for (const file of files) {
+      const localPath = path.join(lettersDir, file);
+      const answer = path.parse(file).name.toUpperCase();
+      const [optionA, optionB, optionC, optionD] = generateOptions(answer);
+
+      // Upload to Cloudinary
+      const result = await uploadFileToCloudinary(localPath, "letters");
+
+      // Avoid duplicates
+      const exists = await prisma.question.findFirst({ where: { answer } });
+      if (!exists) {
+        const question = await prisma.question.create({
+          data: {
+            imageUrl: result.secure_url,
+            optionA,
+            optionB,
+            optionC,
+            optionD,
+            answer,
+          },
+        });
+        uploaded.push(question);
+      }
+    }
 
     return NextResponse.json({
       success: true,
-      url: (uploadResult as any).secure_url,
+      message: "All letters uploaded and questions saved to DB",
+      uploaded,
     });
   } catch (error: any) {
-    console.error("Upload Error:", error);
+    console.error("Error uploading letters:", error);
     return NextResponse.json(
       { error: error.message || "Upload failed" },
       { status: 500 }

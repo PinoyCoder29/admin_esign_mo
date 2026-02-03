@@ -1,13 +1,13 @@
-import AdminHeader from "@/components/header/adminHeader";
-import { ReactNode } from "react";
+"use client";
 
+import { ReactNode } from "react";
+import "bootstrap/dist/css/bootstrap.min.css";
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <div>
       <html>
         <body>
-          <AdminHeader />
-          <main>{children} </main>
+          <main>{children}</main>
         </body>
       </html>
     </div>
